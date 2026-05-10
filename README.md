@@ -16,7 +16,7 @@ This approach combines the flexibility of LLMs with the reliability of pandas op
 
 ### Prerequisites
 
-- **Python 3.9 or higher** (3.9, 3.10, 3.11, 3.12, or 3.13) - **Note**: Python 3.9.7 is not supported due to a Streamlit compatibility issue
+- **Python 3.9  to 3.13 inclusive** (3.9, 3.10, 3.11, 3.12, or 3.13) - **Note**: Python 3.9.7 is not supported due to a Streamlit compatibility issue
 - **Poetry** (dependency manager)
 - **OpenAI API Key**
 

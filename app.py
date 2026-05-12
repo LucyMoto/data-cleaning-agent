@@ -2,9 +2,17 @@
 
 import streamlit as st
 import pandas as pd
+import logging
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from data_cleaning_agent import LightweightDataCleaningAgent
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -120,18 +128,25 @@ if uploaded_file:
     # Clean button
     if st.button("Analyze & Clean Data", type="primary"):
         with st.spinner("Analyzing dataset and generating cleaning code..."):
+            logger.info("Starting data cleaning process...")
             try:
+                logger.info("Initializing LLM model...")
                 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
                 agent = LightweightDataCleaningAgent(model=llm, log=True)
+                
+                logger.info(f"Invoking agent on dataset with shape {df_raw.shape}...")
                 agent.invoke_agent(
                     data_raw=df_raw,
                     user_instructions=custom_instructions if custom_instructions else None
                 )
+                logger.info("Agent processing complete.")
                 
                 # ============ DISPLAY REASONING ============
-                st.success("Analysis complete! Here's what the agent found:")
+                st.success("✅ Analysis complete! Here's what the agent found:")
+                st.write("📊 Analyzing data quality and generating cleaning code...")
                 
                 # Data Quality Analysis
+                logger.info("Retrieving data quality analysis...")
                 st.subheader("📊 Data Quality Analysis")
                 analysis = agent.get_data_quality_analysis()
                 if analysis:
@@ -140,6 +155,7 @@ if uploaded_file:
                     st.warning("No analysis available")
                 
                 # Cleaning Decisions
+                logger.info("Retrieving cleaning decisions...")
                 st.subheader("✅ Cleaning Decisions")
                 decisions = agent.get_cleaning_decisions()
                 if decisions:
@@ -148,6 +164,7 @@ if uploaded_file:
                     st.warning("No decisions documented")
                 
                 # ============ DISPLAY RESULTS ============
+                logger.info("Retrieving cleaned data...")
                 st.divider()
                 st.subheader("🎯 Cleaning Results")
                 
@@ -200,9 +217,9 @@ if uploaded_file:
                         st.code(code, language="python")
                 else:
                     st.error("Failed to clean data. Check the generated code above.")
+                    logger.error("Cleaned data is None - cleaning failed")
                     
             except Exception as e:
+                logger.error(f"Error during cleaning: {str(e)}", exc_info=True)
                 st.error(f"Error during cleaning: {str(e)}")
                 st.info("Try adjusting your custom instructions or check the data format.")
-                
-                

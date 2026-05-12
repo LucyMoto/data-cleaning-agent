@@ -201,25 +201,48 @@ def make_lightweight_data_cleaning_agent(
         # TODO: Expand this prompt with more detailed cleaning instructions
         data_cleaning_prompt = PromptTemplate(
             template="""
-            You are a Data Cleaning Agent. Create a {function_name}() function to clean the data.
+            You are a Data Cleaning Agent. Create a {function_name}() function that cleans the data intelligently.
+            
+            === YOUR TASK ===
+            
+            Examine the data characteristics. Decide which cleaning steps are necessary 
+            and appropriate, based on the actual quality issues present. Justify your decisions.
 
-            Basic Cleaning Steps to implement:
-            1. Remove columns with more than 40% missing values
-            2. Impute missing values (mean for numeric, mode for categorical)
-            3. Remove duplicate rows
+            == ANALYSIS GUIDELINES ===
+            1. IDENTIFY quality issues:
+            - Which columns have high missingness (and is it fixable)?
+            - Are there obvious duplicates or constant columns?
+            - Do columns have the wrong data type?
+            - Are there outliers that seem like errors vs. legitimate extremes?
+            
+            2. DECIDE on appropriate actions:
+            - Remove a column only if it has low information (too sparse, constant, or all-null)
+            - Impute missing values only if the column is important enough to keep
+            - Handle outliers only if they appear to be errors, not true data
+            - Standardize formats (dtypes, names, spacing) for consistency
+            
+            3. JUSTIFY your decisions:
+            - Add comments explaining WHY each step is needed
+            - Document thresholds you choose and why
+            - Note edge cases you handle
 
-            User Instructions:
+            === USER INSTRUCTIONS (custom cleaning instructions) ===
             {user_instructions}
 
-            Dataset Summary:
+            === DATASET SUMMARY ===
             {all_datasets_summary}
 
-            Return Python code in ```python``` format with a single function:
+            === OUTPUT ===
+            Return Python code in ```python``` format with a single function that:
+            - Cleans the data based on identified issues
+            - Includes clear comments explaining each decision
+            - Returns the cleaned DataFrame
 
             def {function_name}(data_raw):
                 import pandas as pd
                 import numpy as np
-                # Your cleaning code here
+                # Your intelligent cleaning code here
+                # Each step should be justified by data quality analysis
                 return data_cleaned
 
             Important: Ensure fit_transform() outputs are flattened with .ravel() when assigning to DataFrame columns.

@@ -194,3 +194,36 @@ def fix_agent_code(state, code_snippet_key, error_key, llm, prompt_template, fun
         error_key: None,
         retry_count_key: state.get(retry_count_key) + 1
     }
+
+
+def detect_decimal_places(series: pd.Series) -> int:
+    """
+    Detect the number of decimal places in a numeric series.
+    
+    Parameters
+    ----------
+    series : pd.Series
+        Numeric series to analyze.
+    
+    Returns
+    -------
+    int
+        Number of decimal places (0 if all integers, otherwise max decimal places found).
+    """
+    non_null = series.dropna()
+    
+    if len(non_null) == 0:
+        return 0
+    
+    max_decimals = 0
+    for val in non_null:
+        try:
+            # Convert to string and count decimal places
+            str_val = str(float(val))
+            if '.' in str_val:
+                decimals = len(str_val.split('.')[-1])
+                max_decimals = max(max_decimals, decimals)
+        except (ValueError, TypeError):
+            continue
+    
+    return max_decimals

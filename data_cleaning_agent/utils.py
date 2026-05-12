@@ -19,6 +19,32 @@ class PythonOutputParser(BaseOutputParser):
         return text
 
 
+def extract_section(text: str, section_name: str) -> str:
+    """
+    Extract a named section from markdown response.
+    
+    Looks for markdown headers like "## SECTION NAME" and extracts
+    the content until the next header or end of text.
+    
+    Parameters
+    ----------
+    text : str
+        The full response text from the LLM.
+    section_name : str
+        The section header to find (e.g., "DATA QUALITY ANALYSIS").
+    
+    Returns
+    -------
+    str
+        The content of that section, or empty string if not found.
+    """
+    pattern = rf"##\s*{re.escape(section_name)}(.*?)(?=##|$)"
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
 def get_dataframe_summary(df: pd.DataFrame) -> str:
     """
     Generate a simple summary of a DataFrame for the LLM.
@@ -38,14 +64,30 @@ def get_dataframe_summary(df: pd.DataFrame) -> str:
     
     column_types = "\n".join([f"{col}: {dtype}" for col, dtype in df.dtypes.items()])
     
+    # Get shape info
+    shape_info = f"Shape: {df.shape[0]} rows, {df.shape[1]} columns"
+    
+    # Get duplicate info
+    duplicates = df.duplicated().sum()
+    duplicate_info = f"Duplicate rows: {duplicates}"
+    
+    # Get constant column info
+    constant_cols = [col for col in df.columns if df[col].nunique() == 1]
+    constant_info = f"Constant columns (all same value): {', '.join(constant_cols) if constant_cols else 'None'}"
+    
     summary = f"""
         Dataset Summary:
         ----------------
+        {shape_info}
+        {duplicate_info}
+        
         Column Data Types:
         {column_types}
 
-        Missing Value Percentage:
-        {missing_summary}"""
+        Missing Value Percentage (top columns):
+        {missing_summary}
+        
+        {constant_info}"""
 
     return summary.strip()
 
@@ -76,7 +118,7 @@ def execute_agent_code(state, data_key, code_snippet_key, result_key, error_key,
     """
     logger.info("Executing agent code")
     
-    data = state.get(data_key)
+    data = state.get(data_key) or {}
     agent_code = state.get(code_snippet_key)
     df = pd.DataFrame.from_dict(data)
     

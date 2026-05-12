@@ -14,6 +14,7 @@ from .utils import (
     get_dataframe_summary,
     execute_agent_code,
     fix_agent_code,
+    extract_section,
 )
 
 # Setup
@@ -24,15 +25,16 @@ LOG_PATH = os.path.join(os.getcwd(), "logs/")
 
 class LightweightDataCleaningAgent:
     """
-    LLM-powered agent that generates and executes Python code to clean pandas DataFrames.
+    LLM-powered agent that analyzes datasets and generates intelligent cleaning code.
     
-    Uses an LLM to create data cleaning functions based on user instructions. The agent
-    automatically retries with error correction if the generated code fails.
+    The agent reasons about data quality issues, decides on appropriate cleaning steps,
+    and explains its decisions. Uses an LLM to analyze and clean pandas DataFrames.
+    The agent automatically retries with error correction if the generated code fails.
     
     Parameters
     ----------
     model : LLM
-        Language model for generating cleaning code (e.g., ChatOpenAI).
+        Language model for analyzing and cleaning data (e.g., ChatOpenAI).
     log : bool, default=False
         Whether to save generated code to a file.
     log_path : str, optional
@@ -47,17 +49,17 @@ class LightweightDataCleaningAgent:
     Attributes
     ----------
     response : dict or None
-        Stores the full response after invoke_agent() is called.
+        Stores the full response after invoke_agent() is called, including reasoning.
     """
     
     def __init__(
         self, 
         model, 
-        log=False, 
-        log_path=None, 
-        file_name="data_cleaner.py", 
-        function_name="data_cleaner",
-        checkpointer: Checkpointer = None
+        log: bool = False, 
+        log_path: str | None = None, 
+        file_name: str = "data_cleaner.py", 
+        function_name: str = "data_cleaner",
+        checkpointer: Checkpointer | None = None
     ):
         self.model = model
         self.log = log
@@ -76,18 +78,17 @@ class LightweightDataCleaningAgent:
             checkpointer=checkpointer
         )
     
-    def invoke_agent(self, data_raw: pd.DataFrame, user_instructions: str=None, max_retries:int=3, retry_count:int=0, **kwargs):
+    def invoke_agent(self, data_raw: pd.DataFrame, user_instructions: str | None = None, max_retries: int = 3, retry_count: int = 0, **kwargs):
         """
-        Generate and execute data cleaning code on the provided DataFrame.
+        Analyze the dataset and generate cleaning code based on intelligent reasoning.
         
         Parameters
         ----------
         data_raw : pd.DataFrame
-            Raw dataset to clean.
+            Raw dataset to analyze and clean.
         user_instructions : str, optional
-            Custom cleaning instructions. If None, applies default cleaning steps:
-            removing columns with >40% missing values, imputing missing values,
-            and removing duplicates.
+            Custom cleaning goals or dataset-specific instructions. 
+            If None, applies general-purpose intelligent cleaning.
         max_retries : int, default=3
             Maximum number of retry attempts if generated code fails.
         retry_count : int, default=0
@@ -111,46 +112,96 @@ class LightweightDataCleaningAgent:
     
     def get_data_cleaned(self):
         """
-        Retrieves the cleaned data stored after running invoke_agent.
+        Retrieves the cleaned data after running invoke_agent.
+        
+        Returns
+        -------
+        pd.DataFrame or None
+            The cleaned dataset.
         """
         if self.response:
-            return pd.DataFrame(self.response.get("data_cleaned"))
+            cleaned = self.response.get("data_cleaned")
+            if cleaned:
+                return pd.DataFrame(cleaned)
+        return None
         
     def get_data_raw(self):
         """
-        Retrieves the raw data.
+        Retrieves the original raw data.
+        
+        Returns
+        -------
+        pd.DataFrame or None
+            The raw dataset.
         """
         if self.response:
-            return pd.DataFrame(self.response.get("data_raw"))
+            raw = self.response.get("data_raw")
+            if raw:
+                return pd.DataFrame(raw)
+        return None
     
     def get_data_cleaner_function(self):
         """
         Retrieves the agent's cleaning function code.
+        
+        Returns
+        -------
+        str or None
+            The Python code of the generated cleaning function.
         """
         if self.response:
             return self.response.get("data_cleaner_function")
+    
+    def get_data_quality_analysis(self):
+        """
+        Retrieves the agent's analysis of data quality issues.
+        
+        Shows which problems were identified in the dataset (missing values,
+        wrong types, duplicates, constants, etc.).
+        
+        Returns
+        -------
+        str or None
+            The agent's data quality analysis.
+        """
+        if self.response:
+            return self.response.get("data_quality_analysis")
+    
+    def get_cleaning_decisions(self):
+        """
+        Retrieves the agent's reasoning about cleaning decisions.
+        
+        Explains why each cleaning step was chosen and how it will improve data quality.
+        
+        Returns
+        -------
+        str or None
+            The agent's justification of cleaning decisions.
+        """
+        if self.response:
+            return self.response.get("cleaning_decisions")
 
 
 # Agent Factory Function
 
 def make_lightweight_data_cleaning_agent(
     model, 
-    log=False, 
-    log_path=None, 
-    file_name="data_cleaner.py",
-    function_name="data_cleaner",
-    checkpointer: Checkpointer = None
+    log: bool = False, 
+    log_path: str | None = None, 
+    file_name: str = "data_cleaner.py",
+    function_name: str = "data_cleaner",
+    checkpointer: Checkpointer | None = None
 ):
     """
-    Factory function that creates a compiled LangGraph workflow for data cleaning.
+    Factory function that creates a compiled LangGraph workflow for intelligent data cleaning.
     
-    Builds a state graph with three nodes: code generation, execution, and error fixing.
-    The workflow automatically retries with corrections if generated code fails.
+    Builds a state graph where the agent analyzes data quality, reasons about cleaning steps,
+    generates code, executes it, and fixes errors if needed.
     
     Parameters
     ----------
     model : LLM
-        Language model for generating cleaning code.
+        Language model for data analysis and code generation.
     log : bool, default=False
         Whether to save generated code to a file.
     log_path : str, optional
@@ -168,106 +219,121 @@ def make_lightweight_data_cleaning_agent(
         Compiled LangGraph workflow ready to process cleaning requests.
     """
     # Setup Log Directory
+    log_path_resolved: str = log_path if log_path is not None else LOG_PATH
     if log:
-        if log_path is None:
-            log_path = LOG_PATH
-        if not os.path.exists(log_path):
-            os.makedirs(log_path)    
+        if not os.path.exists(log_path_resolved):
+            os.makedirs(log_path_resolved)    
 
     # Define state schema for the workflow graph
-    class GraphState(TypedDict):
-        user_instructions: str
+    class GraphState(TypedDict, total=False):
+        user_instructions: str | None
         data_raw: dict
-        data_cleaned: dict
+        data_cleaned: dict | None
         data_cleaner_function: str
-        data_cleaner_function_path: str
+        data_cleaner_function_path: str | None
         data_cleaner_function_name: str
-        data_cleaner_error: str
+        data_cleaner_error: str | None
+        data_quality_analysis: str      # Agent's analysis of quality issues
+        cleaning_decisions: str          # Agent's reasoning about decisions
         max_retries: int
         retry_count: int
 
     
     def create_data_cleaner_code(state: GraphState):
         """
-        Generate the data cleaning code based on user instructions.
-        """
-        logger.info("Creating data cleaner code")
+        Analyze the dataset and generate cleaning code with reasoning.
         
-        data_raw = state.get("data_raw")
+        The agent examines data quality issues and decides on appropriate cleaning steps,
+        then generates the code to implement those decisions.
+        """
+        logger.info("Creating data cleaner code with analysis")
+        
+        data_raw = state.get("data_raw") or {}
         df = pd.DataFrame.from_dict(data_raw)
 
         dataset_summary = get_dataframe_summary(df)
         
-        # TODO: Expand this prompt with more detailed cleaning instructions
+        # Prompt that asks for reasoning + code
         data_cleaning_prompt = PromptTemplate(
             template="""
-            You are a Data Cleaning Agent. Create a {function_name}() function that cleans the data intelligently.
-            
-            === YOUR TASK ===
-            
-            Examine the data characteristics. Decide which cleaning steps are necessary 
-            and appropriate, based on the actual quality issues present. Justify your decisions.
+            You are an intelligent Data Cleaning Agent. Analyze the dataset and decide on 
+            appropriate cleaning steps based on data quality issues you observe.
 
-            == ANALYSIS GUIDELINES ===
-            1. IDENTIFY quality issues:
-            - Which columns have high missingness (and is it fixable)?
-            - Are there obvious duplicates or constant columns?
-            - Do columns have the wrong data type?
-            - Are there outliers that seem like errors vs. legitimate extremes?
-            
-            2. DECIDE on appropriate actions:
+            === YOUR TASK ===
+            1. Analyze the data: identify quality issues (missing values, wrong types, 
+               duplicates, constants, outliers, etc.)
+            2. Decide: determine which cleaning steps are necessary and appropriate
+            3. Justify: explain your decisions clearly
+            4. Generate: write Python code to implement your decisions
+
+            === ANALYSIS GUIDELINES ===
             - Remove a column only if it has low information (too sparse, constant, or all-null)
             - Impute missing values only if the column is important enough to keep
-            - Handle outliers only if they appear to be errors, not true data
+            - Handle outliers only if they appear to be errors, not legitimate extremes
             - Standardize formats (dtypes, names, spacing) for consistency
-            
-            3. JUSTIFY your decisions:
-            - Add comments explaining WHY each step is needed
-            - Document thresholds you choose and why
-            - Note edge cases you handle
+            - Respect the data: don't over-clean or lose important information
 
-            === USER INSTRUCTIONS (custom cleaning instructions) ===
-            {user_instructions}
+            === OUTPUT FORMAT ===
+            Return your response in THREE sections (use exact markdown headers):
+
+            ## DATA QUALITY ANALYSIS
+            [Describe the issues you found in the dataset]
+
+            ## CLEANING DECISIONS
+            [Explain which cleaning steps you chose and why]
+
+            ## CLEANING CODE
+            [Python code in ```python``` blocks below]
 
             === DATASET SUMMARY ===
             {all_datasets_summary}
 
-            === OUTPUT ===
-            Return Python code in ```python``` format with a single function that:
-            - Cleans the data based on identified issues
-            - Includes clear comments explaining each decision
-            - Returns the cleaned DataFrame
+            === USER INSTRUCTIONS (custom goals) ===
+            {user_instructions}
+
+            === IMPLEMENTATION NOTES ===
+            Return Python code with a single function:
 
             def {function_name}(data_raw):
                 import pandas as pd
                 import numpy as np
-                # Your intelligent cleaning code here
-                # Each step should be justified by data quality analysis
+                # Your cleaning code here
+                # Based on analysis and decisions above
                 return data_cleaned
-
-            Important: Ensure fit_transform() outputs are flattened with .ravel() when assigning to DataFrame columns.
             """,
             input_variables=["user_instructions", "all_datasets_summary", "function_name"]
         )
 
-        data_cleaning_agent = data_cleaning_prompt | model | PythonOutputParser()
+        data_cleaning_agent = data_cleaning_prompt | model
         
         response = data_cleaning_agent.invoke({
-            "user_instructions": state.get("user_instructions") or "Follow the basic cleaning steps.",
+            "user_instructions": state.get("user_instructions") or "Apply intelligent cleaning based on data quality analysis.",
             "all_datasets_summary": dataset_summary,
             "function_name": function_name
         })
         
+        # Parse response to extract reasoning and code
+        if hasattr(response, 'content'):
+            response_text = response.content
+        else:
+            response_text = str(response)
+        
+        analysis = extract_section(response_text, "DATA QUALITY ANALYSIS")
+        decisions = extract_section(response_text, "CLEANING DECISIONS")
+        code = PythonOutputParser().parse(response_text)
+        
         # Simple logging if enabled
         file_path = None
         if log:
-            file_path = os.path.join(log_path, file_name)
+            file_path = os.path.join(log_path_resolved, file_name)
             with open(file_path, 'w') as f:
-                f.write(response)
+                f.write(code)
             logger.info(f"Code saved to: {file_path}")
    
         return {
-            "data_cleaner_function": response,
+            "data_cleaner_function": code,
+            "data_quality_analysis": analysis,      # Store reasoning
+            "cleaning_decisions": decisions,         # Store decisions
             "data_cleaner_function_path": file_path,
             "data_cleaner_function_name": function_name,
         }
@@ -287,18 +353,20 @@ def make_lightweight_data_cleaning_agent(
         
     def fix_data_cleaner_code(state: GraphState):
         """
-        Fix errors in the generated data cleaning code.
+        Fix errors in the generated data cleaning code using the LLM.
         """
         data_cleaner_prompt = """
         You are a Data Cleaning Agent. Fix the broken {function_name}() function.
+        
+        The function had this error:
+        {error}
+
+        Analyze the error and provide corrected code that avoids this problem.
         
         Return Python code in ```python``` format with the corrected function definition.
         
         Broken code: 
         {code_snippet}
-
-        Error:
-        {error}
         """
 
         return fix_agent_code(

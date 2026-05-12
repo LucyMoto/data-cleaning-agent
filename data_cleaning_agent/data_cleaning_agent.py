@@ -19,6 +19,15 @@ from .utils import (
 
 # Setup
 logger = logging.getLogger(__name__)
+
+# Configure logging to show messages
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 AGENT_NAME = "lightweight_data_cleaning_agent"
 LOG_PATH = os.path.join(os.getcwd(), "logs/")
 
@@ -186,7 +195,7 @@ class LightweightDataCleaningAgent:
 
 def make_lightweight_data_cleaning_agent(
     model, 
-    log: bool = False, 
+    log: bool = True, 
     log_path: str | None = None, 
     file_name: str = "data_cleaner.py",
     function_name: str = "data_cleaner",

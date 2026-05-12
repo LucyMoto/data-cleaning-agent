@@ -269,9 +269,12 @@ def make_lightweight_data_cleaning_agent(
             === ANALYSIS GUIDELINES ===
             - Remove a column only if it has low information (too sparse, constant, or all-null)
             - Impute missing values only if the column is important enough to keep
+            - **CRITICAL**: When imputing numeric values, ALWAYS round to match the precision of existing values
             - Handle outliers only if they appear to be errors, not legitimate extremes
             - Standardize formats (dtypes, names, spacing) for consistency
             - Respect the data: don't over-clean or lose important information
+            - AVOID chained assignment with inplace=True (df['col'].method(inplace=True) causes FutureWarnings)
+            - Use direct assignment instead: df['col'] = df['col'].method() or df = df.method()
 
             === OUTPUT FORMAT ===
             Return your response in THREE sections (use exact markdown headers):
@@ -281,6 +284,7 @@ def make_lightweight_data_cleaning_agent(
 
             ## CLEANING DECISIONS
             [Explain which cleaning steps you chose and why]
+            [IMPORTANT: For EVERY numeric column you impute, explicitly state: "Round to X decimal places to match existing values"]
 
             ## CLEANING CODE
             [Python code in ```python``` blocks below]
@@ -299,6 +303,37 @@ def make_lightweight_data_cleaning_agent(
                 import numpy as np
                 # Your cleaning code here
                 # Based on analysis and decisions above
+                
+                # CRITICAL: Avoid chained assignment with inplace=True
+                # ❌ DON'T DO THIS: df['col'].fillna(value, inplace=True)
+                # ✅ DO THIS INSTEAD: df['col'] = df['col'].fillna(value)
+                
+                # MANDATORY: ALWAYS round imputed numeric values to match existing precision
+                # DO NOT generate long floats like 42.66666666666667
+                # INSTEAD: Detect the decimal precision of each column and round to match
+                
+                # Helper function to detect decimal places
+                def detect_decimals(series):
+                    non_null = series.dropna()
+                    if len(non_null) == 0:
+                        return 0
+                    max_decimals = 0
+                    for val in non_null:
+                        try:
+                            str_val = str(float(val))
+                            if '.' in str_val:
+                                decimals = len(str_val.split('.')[-1].rstrip('0'))
+                                max_decimals = max(max_decimals, decimals)
+                        except (ValueError, TypeError):
+                            pass
+                    return max_decimals
+                
+                # Example: For EVERY numeric column that needs imputation:
+                #   decimals = detect_decimals(df['salary'])
+                #   df['salary'] = df['salary'].fillna(df['salary'].median()).round(decimals)
+                # Result: salary values like 45000.00 stay 45000, imputed values like 45000.000001 become 45000
+                # Result: salary values like 45000.50 stay 45000.50, imputed values like 45000.666667 become 45000.67
+                
                 return data_cleaned
             """,
             input_variables=["user_instructions", "all_datasets_summary", "function_name"]

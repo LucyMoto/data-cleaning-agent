@@ -2,7 +2,6 @@
 
 An AI-powered data cleaning agent that **analyzes your dataset, reasons about quality issues, and intelligently decides which cleaning steps are appropriate**. Unlike prescriptive tools, this agent adapts to your specific data and explains its decisions.
 
-
 ## How It Works
 
 The agent follows an intelligent reasoning cycle:
@@ -35,6 +34,11 @@ The agent follows an intelligent reasoning cycle:
 - **Custom instructions** — Override defaults with your specific goals
 - **Self-healing** — Automatically fixes code errors and retries
 - **Audit trail** — Full record of analysis, decisions, and code
+- **Detailed statistics** — Before/after comparison with column-level analytics
+  - Categorical columns: distinct values with counts
+  - Numeric columns: min, mean, max statistics  
+- **Smart imputation** — Imputed values rounded to match column precision
+- **Data quality insights** — Categorical value distributions, numeric ranges, missing patterns
 
 ## Setup
 
@@ -113,22 +117,33 @@ poetry run streamlit run app.py
 
 Then:
 1. Upload your CSV file
-2. (Optional) Add custom cleaning instructions
-3. Click "Analyze & Clean Data"
-4. Review the agent's reasoning
-5. Download the cleaned dataset
+2. Review **Raw Data Overview** with detailed statistics:
+   - Rows, columns, missing values, duplicate count
+   - Column-by-column breakdown:
+     - **Numeric columns**: min, mean, max, unique count
+     - **Categorical columns**: distinct values, top 3 values with counts
+   - Sample data preview
+3. (Optional) Add custom cleaning instructions
+4. Click "Analyze & Clean Data"
+5. Review the agent's reasoning (Data Quality Analysis & Cleaning Decisions)
+6. Compare **Before & After** with tabbed detailed statistics (After Cleaning tab is default)
+7. Download the cleaned dataset
 
 **Example workflow:**
 ```
 Upload: messy_customer_data.csv
 ↓
-Agent analyzes: "Found 42% missing values in 'feedback' column, 
-                 customers are either active/inactive (binary), 
-                 age has outliers (negative values)"
+Raw Data Overview shows:
+  - age: Numeric, Min: -5, Mean: 42.3, Max: 200, Missing: 8 (2.1%)
+  - department: Categorical, Distinct: 5, Top: Sales (450), IT (380), HR (120)
+  - feedback: Categorical, Distinct: 1250, Missing: 1050 (42%)
 ↓
-Agent decides: "Keep feedback despite 42% missing (useful data), 
-               fix negative ages (data entry error), 
-               remove 'email_invalid' column (all False, no signal)"
+Agent analyzes and decides
+↓
+After Cleaning tab shows:
+  - age: Numeric, Min: 18, Mean: 42.6, Max: 85, Missing: 0 (0%) [Imputed & rounded]
+  - department: Categorical, Distinct: 5, Top: Sales (450), IT (380), HR (120)
+  - feedback: Categorical, Distinct: 1250, Missing: 50 (1.6%) [Filled with "no_feedback"]
 ↓
 You download: cleaned_customer_data.csv
 ```
@@ -179,31 +194,97 @@ agent.invoke_agent(
 )
 ```
 
-## Output: Three Key Artifacts
+## Output: Three Key Artifacts + Detailed Statistics
 
 After cleaning, you get:
 
 ### 1. Data Quality Analysis
 What problems the agent found:
 ```
-- Column 'age': 8% missing, contains negative values (likely data entry errors)
-- Column 'feedback': 42% missing, but contains valuable customer insights
-- Column 'is_active': only 2 unique values (True/False), binary feature
-- 127 exact duplicate rows detected
+1. Missing Values:
+   - Column 'age': 8% missing, contains negative values (data entry errors)
+   - Column 'feedback': 42% missing, but contains valuable customer insights
+   
+2. Data Types:
+   - Column 'department': object, 5 unique categorical values
+   - Column 'salary': float64, values range from $30K to $250K
 ```
 
 ### 2. Cleaning Decisions
 Why each step was chosen:
 ```
-- Removing 'email_invalid' (constant column, all False values)
-- Keeping 'feedback' despite 42% missing (valuable for analysis)
-- Imputing 'age' with median (more robust to outliers than mean)
-- Capping negative ages at 0 (assuming data entry errors)
-- Standardizing 'status' to lowercase ('ACTIVE' → 'active')
+1. Imputation Strategy:
+   - Impute 'age' with median (42), round to 0 decimals to match existing values
+   - Impute 'salary' with median ($85000.00), round to 2 decimals to match existing values
+   
+2. Column Removal:
+   - Remove 'email_invalid' (constant column, all False values)
+   
+3. Standardization:
+   - Standardize 'status' to lowercase ('ACTIVE' → 'active')
 ```
 
-### 3. Cleaned Data
-The processed DataFrame, ready for analysis or modeling.
+### 3. Cleaned Data with Before/After Comparison
+View detailed statistics for both raw and cleaned data side-by-side:
+
+**Raw Data Overview:**
+```
+Column Statistics:
+├─ age (Numeric): Min: -5, Mean: 42.3, Max: 200, Missing: 8 (2.1%), Unique: 156
+├─ salary (Numeric): Min: 30000.00, Mean: 85432.50, Max: 250000.00, Missing: 3 (0.1%), Unique: 412
+├─ department (Categorical): Distinct: 5, Top: Sales (450), IT (380), HR (120), Missing: 0 (0%)
+└─ feedback (Categorical): Distinct: 1250, Top: "good" (380), "excellent" (245), Missing: 1050 (42%)
+```
+
+**After Cleaning (default tab):**
+```
+Column Statistics:
+├─ age (Numeric): Min: 18, Mean: 42.6, Max: 85, Missing: 0 (0%), Unique: 156
+├─ salary (Numeric): Min: 30000.00, Mean: 85432.50, Max: 250000.00, Missing: 0 (0%), Unique: 415
+├─ department (Categorical): Distinct: 5, Top: Sales (450), IT (380), HR (120), Missing: 0 (0%)
+└─ feedback (Categorical): Distinct: 1251, Top: "good" (380), "excellent" (245), Missing: 0 (0%)
+```
+
+The processed DataFrame is ready for analysis or modeling.
+
+## Data Precision & Smart Rounding
+
+The agent automatically detects and preserves data precision when imputing missing values:
+
+### How It Works
+
+When imputing numeric columns, the agent:
+
+1. **Detects** the decimal precision of existing values:
+   - Column with values `[45000, 46000, 47000]` → 0 decimals
+   - Column with values `[45.50, 46.75, 47.25]` → 2 decimals
+   - Column with values `[3.1, 4.2, 5.9]` → 1 decimal
+
+2. **Imputes** missing values using median/mean:
+   - Fills missing values with statistical measures
+
+3. **Rounds** imputed values to match detected precision:
+   - `45000.666666` with 0 decimals → `45001`
+   - `45.6666666` with 2 decimals → `45.67`
+   - `4.2333333` with 1 decimal → `4.2`
+
+### Benefits
+
+- ✅ No long floating-point artifacts (e.g., `42.66666666666667`)
+- ✅ Data looks natural and intentional
+- ✅ Imputed values match the style of existing data
+- ✅ No information loss while maintaining precision
+
+### Example
+
+```
+Raw data salary column: [50000.00, 55000.00, 60000.00, NaN, 70000.00]
+Agent detects: 2 decimal places
+Agent imputes: median = 60000.00
+Result: [50000.00, 55000.00, 60000.00, 60000.00, 70000.00] ✓
+
+Instead of: [50000.00, 55000.00, 60000.00, 60000.0000001, 70000.00] ✗
+```
 
 ## Project Structure
 
@@ -332,9 +413,3 @@ This project demonstrates key AI engineering patterns:
 | **Transparent Decision-Making** | Audit trail for trust | Agent explains reasoning before cleaning |
 | **State Management** | Immutable state tracking | LangGraph TypedDict holds analysis, decisions, code, results |
 
-## Next Steps
-
-- Explore `AGENTS.md` to understand the agent's decision-making process
-- Try the Streamlit interface with your own datasets
-- Extend the agent with custom validation rules
-- Integrate into your data pipeline

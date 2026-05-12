@@ -2,6 +2,8 @@
 
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
 import logging
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -107,6 +109,185 @@ def format_analysis_text(text):
     return '\n'.join(result)
 
 
+_RAW_COLOR = "#4C78A8"      # muted blue
+_CLEANED_COLOR = "#54A24B"  # muted green
+_CHART_CONFIG = {"displayModeBar": False}
+
+
+def _fmt(name: str) -> str:
+    return name.replace("_", " ").title()
+
+
+def _layout(title="", height=320, **extra):
+    return dict(
+        template="plotly_white",
+        title=dict(text=title, font=dict(size=14, color="#374151"), x=0, xanchor="left"),
+        font=dict(family="sans-serif", size=12, color="#374151"),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=height,
+        margin=dict(t=55, b=40, l=55, r=20),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.08,
+            xanchor="left", x=0, bgcolor="rgba(0,0,0,0)",
+        ),
+        **extra,
+    )
+
+
+def display_visualisations(df_raw, df_cleaned=None):
+    """Display distribution and quality visualisations, optionally with before/after comparison."""
+    comparison = df_cleaned is not None
+    numeric_cols = df_raw.select_dtypes(include="number").columns.tolist()
+    categorical_cols = [
+        col for col in df_raw.columns
+        if not pd.api.types.is_numeric_dtype(df_raw[col]) and df_raw[col].nunique() <= 20
+    ]
+
+    # --- Missing values (horizontal bars, sorted by % missing) ---
+    missing_raw = (df_raw.isna().sum() / len(df_raw) * 100).sort_values()
+    cols_with_missing = missing_raw[missing_raw > 0]
+    if not cols_with_missing.empty:
+        st.markdown("##### Missing Values")
+        bar_height = max(260, len(cols_with_missing) * 36)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=[_fmt(c) for c in cols_with_missing.index],
+            x=cols_with_missing.values,
+            orientation="h",
+            name="Raw",
+            marker=dict(color=_RAW_COLOR, opacity=0.85),
+            hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+        ))
+        if comparison:
+            missing_cleaned = (
+                df_cleaned.isna().sum() / len(df_cleaned) * 100
+            ).reindex(cols_with_missing.index, fill_value=0)
+            fig.add_trace(go.Bar(
+                y=[_fmt(c) for c in missing_cleaned.index],
+                x=missing_cleaned.values,
+                orientation="h",
+                name="Cleaned",
+                marker=dict(color=_CLEANED_COLOR, opacity=0.85),
+                hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+            ))
+        fig.update_layout(
+            **_layout(height=bar_height),
+            barmode="group",
+            xaxis=dict(title="% Missing", range=[0, 100], ticksuffix="%"),
+            yaxis=dict(title=""),
+        )
+        st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG)
+
+    # --- Numeric distributions ---
+    if numeric_cols:
+        st.markdown("##### Numeric Distributions")
+        for i in range(0, len(numeric_cols), 2):
+            row_cols = st.columns(2)
+            for j, col in enumerate(numeric_cols[i : i + 2]):
+                with row_cols[j]:
+                    fig = go.Figure()
+                    fig.add_trace(go.Histogram(
+                        x=df_raw[col].dropna(),
+                        name="Raw",
+                        nbinsx=25,
+                        marker=dict(
+                            color=_RAW_COLOR, opacity=0.75,
+                            line=dict(color="white", width=0.5),
+                        ),
+                        hovertemplate="Range: %{x}<br>Count: %{y}<extra>Raw</extra>",
+                    ))
+                    if comparison and col in df_cleaned.columns:
+                        fig.add_trace(go.Histogram(
+                            x=df_cleaned[col].dropna(),
+                            name="Cleaned",
+                            nbinsx=25,
+                            marker=dict(
+                                color=_CLEANED_COLOR, opacity=0.65,
+                                line=dict(color="white", width=0.5),
+                            ),
+                            hovertemplate="Range: %{x}<br>Count: %{y}<extra>Cleaned</extra>",
+                        ))
+                    fig.update_layout(
+                        **_layout(title=_fmt(col), height=300),
+                        barmode="overlay",
+                        showlegend=comparison,
+                        xaxis=dict(title=""),
+                        yaxis=dict(title="Count"),
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG)
+
+    # --- Categorical value counts ---
+    if categorical_cols:
+        st.markdown("##### Categorical Distributions")
+        for i in range(0, len(categorical_cols), 2):
+            row_cols = st.columns(2)
+            for j, col in enumerate(categorical_cols[i : i + 2]):
+                with row_cols[j]:
+                    counts_raw = df_raw[col].value_counts().head(10).sort_values()
+                    labels = [str(v) for v in counts_raw.index]
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        y=labels,
+                        x=counts_raw.values,
+                        orientation="h",
+                        name="Raw",
+                        marker=dict(color=_RAW_COLOR, opacity=0.85),
+                        hovertemplate="%{y}: %{x}<extra>Raw</extra>",
+                    ))
+                    if comparison and col in df_cleaned.columns:
+                        # Normalise to lowercase strings before matching — cleaning agents
+                        # commonly strip/lowercase category values, breaking exact reindex.
+                        raw_labels_norm = [str(v).strip().lower() for v in counts_raw.index]
+                        cleaned_vc_norm = (
+                            df_cleaned[col].astype(str).str.strip().str.lower().value_counts()
+                        )
+                        cleaned_vals = [int(cleaned_vc_norm.get(lbl, 0)) for lbl in raw_labels_norm]
+                        fig.add_trace(go.Bar(
+                            y=labels,
+                            x=cleaned_vals,
+                            orientation="h",
+                            name="Cleaned",
+                            marker=dict(color=_CLEANED_COLOR, opacity=0.85),
+                            hovertemplate="%{y}: %{x}<extra>Cleaned</extra>",
+                        ))
+                    cat_height = max(280, len(labels) * 32 + 80)
+                    fig.update_layout(
+                        **_layout(title=_fmt(col), height=cat_height),
+                        barmode="group",
+                        showlegend=comparison,
+                        xaxis=dict(title="Count"),
+                        yaxis=dict(title=""),
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG)
+
+    # --- Correlation heatmap ---
+    target_df = df_cleaned if comparison else df_raw
+    numeric_target = target_df.select_dtypes(include="number")
+    if len(numeric_target.columns) >= 2:
+        label = "after cleaning" if comparison else "raw data"
+        st.markdown(f"##### Correlation Heatmap ({label})")
+        corr = numeric_target.corr()
+        n = len(corr)
+        cell_px = max(52, min(80, 420 // n))
+        fig = px.imshow(
+            corr,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            aspect="auto",
+        )
+        fig.update_traces(textfont=dict(size=max(9, 13 - n)))
+        fig.update_layout(
+            **_layout(height=n * cell_px + 80),
+            xaxis=dict(tickangle=-35, tickfont=dict(size=11)),
+            yaxis=dict(tickfont=dict(size=11)),
+            coloraxis_colorbar=dict(thickness=14, len=0.8),
+        )
+        st.plotly_chart(fig, use_container_width=True, config=_CHART_CONFIG)
+
+
 # Upload file
 uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
@@ -116,7 +297,10 @@ if uploaded_file:
     
     # Display raw data overview
     display_data_overview(df_raw, "📊 Raw Data Overview")
-    
+
+    with st.expander("📈 Raw Data Visualisations", expanded=False):
+        display_visualisations(df_raw)
+
     # Custom instructions
     with st.expander("📝 Optional: Add custom cleaning instructions"):
         custom_instructions = st.text_area(
@@ -200,7 +384,13 @@ if uploaded_file:
                         display_data_overview(df_raw, "Raw Data")
                     
                     st.divider()
-                    
+
+                    # Before/after visualisations
+                    st.markdown("#### Before & After Visualisations")
+                    display_visualisations(df_raw, df_cleaned)
+
+                    st.divider()
+
                     # Download button
                     csv = df_cleaned.to_csv(index=False)
                     st.download_button(

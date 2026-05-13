@@ -14,6 +14,7 @@ WORKDIR /app
 # Copy dependency files first so Docker can cache the pip install layer —
 # changes to app.py won't re-trigger a full reinstall
 COPY pyproject.toml .
+COPY README.md .
 COPY data_cleaning_agent/ ./data_cleaning_agent/
 RUN pip install --no-cache-dir .
 

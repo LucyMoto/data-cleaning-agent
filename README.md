@@ -340,7 +340,7 @@ The API key **never leaves the Render server**. Users cannot see it.
 This project demonstrates the distinction between **agents** (which reason and adapt) and **workflows** (which follow fixed paths):
 
 - **Workflow Structure** (`agent.py`): Fixed sequence of nodes (analyze → execute → fix if error)
-- **Agent Behavior** (LLM prompt): Reasons about data quality, decides on steps, explains reasoning
+- **Agent Behavior** (LLM prompt): Concise prompt that reasons about data quality, decides on appropriate cleaning steps, and explains each decision — structured to minimize token overhead without losing any constraints
 - **Result**: Adaptive workflow guided by intelligent agent decision-making
 
 Learn more in `AGENTS.md`.

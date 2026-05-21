@@ -1,9 +1,12 @@
 # Libraries
 from typing import TypedDict
+import json
 import os
 import logging
+import re
 
 import pandas as pd
+from pydantic import BaseModel, Field
 
 from langchain.prompts import PromptTemplate
 from langgraph.types import Checkpointer
@@ -14,8 +17,13 @@ from .utils import (
     get_dataframe_summary,
     execute_agent_code,
     fix_agent_code,
-    extract_section,
 )
+
+
+class CleaningResponse(BaseModel):
+    analysis: str = Field(description="Analysis of data quality issues found in the dataset")
+    decisions: str = Field(description="Explanation of which cleaning steps were chosen and why")
+    code: str = Field(description="Python code implementing the cleaning decisions")
 
 # Setup
 logger = logging.getLogger(__name__)
@@ -286,17 +294,14 @@ def make_lightweight_data_cleaning_agent(
             - Use direct assignment instead: df['col'] = df['col'].method() or df = df.method()
 
             === OUTPUT FORMAT ===
-            Return your response in THREE sections (use exact markdown headers):
+            Return a JSON object with EXACTLY these fields:
+            {{
+                "analysis": "Detailed description of quality issues found",
+                "decisions": "Explanation of cleaning steps chosen and why",
+                "code": "Python code as a string (in ```python``` blocks)"
+            }}
 
-            ## DATA QUALITY ANALYSIS
-            [Describe the issues you found in the dataset]
-
-            ## CLEANING DECISIONS
-            [Explain which cleaning steps you chose and why]
-            [IMPORTANT: For EVERY numeric column you impute, explicitly state: "Round to X decimal places to match existing values"]
-
-            ## CLEANING CODE
-            [Python code in ```python``` blocks below]
+            IMPORTANT: Return ONLY valid JSON. No markdown, no extra text.
 
             === DATASET SUMMARY ===
             {all_datasets_summary}
@@ -316,33 +321,7 @@ def make_lightweight_data_cleaning_agent(
                 # CRITICAL: Avoid chained assignment with inplace=True
                 # ❌ DON'T DO THIS: df['col'].fillna(value, inplace=True)
                 # ✅ DO THIS INSTEAD: df['col'] = df['col'].fillna(value)
-                
-                # MANDATORY: ALWAYS round imputed numeric values to match existing precision
-                # DO NOT generate long floats like 42.66666666666667
-                # INSTEAD: Detect the decimal precision of each column and round to match
-                
-                # Helper function to detect decimal places
-                def detect_decimals(series):
-                    non_null = series.dropna()
-                    if len(non_null) == 0:
-                        return 0
-                    max_decimals = 0
-                    for val in non_null:
-                        try:
-                            str_val = str(float(val))
-                            if '.' in str_val:
-                                decimals = len(str_val.split('.')[-1].rstrip('0'))
-                                max_decimals = max(max_decimals, decimals)
-                        except (ValueError, TypeError):
-                            pass
-                    return max_decimals
-                
-                # Example: For EVERY numeric column that needs imputation:
-                #   decimals = detect_decimals(df['salary'])
-                #   df['salary'] = df['salary'].fillna(df['salary'].median()).round(decimals)
-                # Result: salary values like 45000.00 stay 45000, imputed values like 45000.000001 become 45000
-                # Result: salary values like 45000.50 stay 45000.50, imputed values like 45000.666667 become 45000.67
-                
+
                 return data_cleaned
             """,
             input_variables=["user_instructions", "all_datasets_summary", "function_name"]
@@ -356,15 +335,24 @@ def make_lightweight_data_cleaning_agent(
             "function_name": function_name
         })
         
-        # Parse response to extract reasoning and code
+        # Parse response using Pydantic for robust validation
         if hasattr(response, 'content'):
             response_text = response.content
         else:
             response_text = str(response)
-        
-        analysis = extract_section(response_text, "DATA QUALITY ANALYSIS")
-        decisions = extract_section(response_text, "CLEANING DECISIONS")
-        code = PythonOutputParser().parse(response_text)
+
+        try:
+            parsed = CleaningResponse.model_validate_json(response_text)
+        except (json.JSONDecodeError, ValueError):
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                parsed = CleaningResponse.model_validate_json(json_match.group())
+            else:
+                raise ValueError(f"Could not parse JSON from response: {response_text[:500]}")
+
+        analysis = parsed.analysis
+        decisions = parsed.decisions
+        code = PythonOutputParser().parse(parsed.code)
         
         # Simple logging if enabled
         file_path = None

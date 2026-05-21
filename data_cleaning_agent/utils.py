@@ -92,6 +92,14 @@ def get_dataframe_summary(df: pd.DataFrame) -> str:
     return summary.strip()
 
 
+def _round_to_original_precision(df_cleaned: pd.DataFrame, df_original: pd.DataFrame) -> pd.DataFrame:
+    for col in df_cleaned.select_dtypes(include='number').columns:
+        source = df_original[col] if col in df_original.columns else df_cleaned[col]
+        decimals = detect_decimal_places(source)
+        df_cleaned[col] = df_cleaned[col].round(decimals)
+    return df_cleaned
+
+
 def execute_agent_code(state, data_key, code_snippet_key, result_key, error_key, agent_function_name):
     """
     Execute the generated agent code on the data.
@@ -139,6 +147,7 @@ def execute_agent_code(state, data_key, code_snippet_key, result_key, error_key,
     try:
         result = agent_function(df)
         if isinstance(result, pd.DataFrame):
+            result = _round_to_original_precision(result, df)
             result = result.to_dict()
     except Exception as e:
         logger.error(f"Execution failed: {e}")

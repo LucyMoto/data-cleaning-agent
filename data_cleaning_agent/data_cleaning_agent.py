@@ -270,58 +270,38 @@ def make_lightweight_data_cleaning_agent(
 
         dataset_summary = get_dataframe_summary(df)
         
-        # Prompt that asks for reasoning + code
         data_cleaning_prompt = PromptTemplate(
             template="""
-            You are an intelligent Data Cleaning Agent. Analyze the dataset and decide on 
-            appropriate cleaning steps based on data quality issues you observe.
+            You are a Data Cleaning Agent. Analyze the dataset, decide on appropriate cleaning steps, justify each decision, and generate Python code to implement them.
 
-            === YOUR TASK ===
-            1. Analyze the data: identify quality issues (missing values, wrong types, 
-               duplicates, constants, outliers, etc.)
-            2. Decide: determine which cleaning steps are necessary and appropriate
-            3. Justify: explain your decisions clearly
-            4. Generate: write Python code to implement your decisions
-
-            === ANALYSIS GUIDELINES ===
+            === GUIDELINES ===
             - Remove a column only if it has low information (too sparse, constant, or all-null)
             - Impute missing values only if the column is important enough to keep
             - **CRITICAL**: When imputing numeric values, ALWAYS round to match the precision of existing values
             - Handle outliers only if they appear to be errors, not legitimate extremes
             - Standardize formats (dtypes, names, spacing) for consistency
-            - Respect the data: don't over-clean or lose important information
-            - AVOID chained assignment with inplace=True (df['col'].method(inplace=True) causes FutureWarnings)
-            - Use direct assignment instead: df['col'] = df['col'].method() or df = df.method()
+            - Don't over-clean or lose important information
+            - Use direct assignment, not chained inplace=True: df['col'] = df['col'].fillna(v), not df['col'].fillna(v, inplace=True)
 
             === OUTPUT FORMAT ===
-            Return a JSON object with EXACTLY these fields:
+            Return ONLY valid JSON with exactly these fields (no markdown, no extra text):
             {{
                 "analysis": "Detailed description of quality issues found",
                 "decisions": "Explanation of cleaning steps chosen and why",
                 "code": "Python code as a string (in ```python``` blocks)"
             }}
 
-            IMPORTANT: Return ONLY valid JSON. No markdown, no extra text.
-
             === DATASET SUMMARY ===
             {all_datasets_summary}
 
-            === USER INSTRUCTIONS (custom goals) ===
+            === USER INSTRUCTIONS ===
             {user_instructions}
 
-            === IMPLEMENTATION NOTES ===
-            Return Python code with a single function:
-
+            === CODE TEMPLATE ===
             def {function_name}(data_raw):
                 import pandas as pd
                 import numpy as np
-                # Your cleaning code here
-                # Based on analysis and decisions above
-                
-                # CRITICAL: Avoid chained assignment with inplace=True
-                # ❌ DON'T DO THIS: df['col'].fillna(value, inplace=True)
-                # ✅ DO THIS INSTEAD: df['col'] = df['col'].fillna(value)
-
+                # cleaning code here
                 return data_cleaned
             """,
             input_variables=["user_instructions", "all_datasets_summary", "function_name"]
